@@ -1,0 +1,10 @@
+package: github.com/jan-g/ifninity
+homepage: https://github.com/jan-g/ifninity
+license: Apache-2.0
+owners:
+- name: Jan Grant
+  email: jang@ioctl.org
+import:
+- package: github.com/gin-gonic/gin
+testImport:
+- package: github.com/arschles/assert
