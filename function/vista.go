@@ -1,6 +1,17 @@
 package function
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+
+	"github.com/jan-g/ifninity/flow"
+	"os"
+	"mime"
+	"strings"
+	"mime/multipart"
+	"io/ioutil"
+	"fmt"
+	"io"
+)
 
 /*
 package com.fnproject.fn.examples;
@@ -117,25 +128,95 @@ func Vista(c *gin.Context) {
 	} else {
 		// Extract the other salient pieces
 		stageId := c.GetHeader("fnproject-stageid")
+
+		// Extract the bits from the multipart
+		mediaType, params, err := mime.ParseMediaType(c.Request.Header.Get("Content-Type"))
+		if err != nil {
+			panic(err)
+		}
+		var items []string
+		if strings.HasPrefix(mediaType, "multipart/") {
+			mr := multipart.NewReader(c.Request.Body, params["boundary"])
+			for {
+				p, err := mr.NextPart()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					panic(err)
+				}
+				slurp, err := ioutil.ReadAll(p)
+				if err != nil {
+					panic(err)
+				}
+				items = append(items, string(slurp))
+			}
+		}
+
 		if stageId != "" {
-			stage[stageId](c, flowId)
+			stage[strings.Split(items[0], "|")[0]](c, flowId, stageId, items)
 		}
 	}
 }
 
-var stage = map[string]func(*gin.Context, string){
-	"0": terminationHook,
+
+type RunSpec struct {
+	NumImages int64
+	NumBytesInData int64
+	SlowFunction string
+	FastFunction string
+	NotifyFinished bool
+	NotifyURL string
 }
 
 func handleRequest(c *gin.Context) {
 	// TODO: generate stages
+	var rs RunSpec
+	err := c.BindJSON(&rs)
+	if err != nil {
+		panic(err)
+	}
+
+	flow, err := flow.NewFlow("t/flow-load-test-vista")
+	if err != nil {
+		panic(err)
+	}
+	flow.AddTerminationHook("terminate|" + rs.NotifyURL)
+	fmt.Printf("Input RunSpec = %+v\n", rs)
+	flow.Commit()
 }
 
 // Stages
 
-func terminationHook(c *gin.Context, flowId string) {
+var stage = map[string]func(*gin.Context, string, string, []string){
+	"terminate": terminationHook,
+}
+
+func terminationHook(c *gin.Context, flowId string, stageId string, items []string) {
 	// TODO: callback with termination notification
+	/*
+	HttpPost httppost = new HttpPost(input.notifyURL);
+	httppost.setEntity(null);
+
+	HttpClient httpclient = new DefaultHttpClient();
+	try {
+		httpclient.execute(httppost);
+	} catch (IOException e) {
+	// We can't do much at this stage really...
+	e.printStackTrace();
+	}
+	*/
+	fmt.Printf("Terminating flow %s with stage %s items = %v\n", flowId, stageId, items)
 	returnDatum(c, "empty", true, "", nil)
+}
+
+var notifyURL string
+
+func init() {
+	notifyURL = os.Getenv("NOTIFY_URL")
+	if notifyURL == "" {
+		panic("NOTIFY_URL must be set")
+	}
 }
 
 
