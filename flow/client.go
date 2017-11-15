@@ -17,14 +17,19 @@ func init() {
 }
 
 type Flow interface {
+	Id() string
 	AddTerminationHook(fnName string) error
 	Commit() error
 
 	CompletedValue(value string) (Stage, error)
+	InvokeFunction(fnPath string, contentType string, payload string) (Stage, error)
+	AllOf(stages ...Stage) (Stage, error)
 }
 
 type Stage interface {
+	Id() string
 	ThenCompose(fnName string) (Stage, error)
+	ThenApply(fnName string) (Stage, error)
 }
 
 type f struct {
@@ -35,6 +40,7 @@ type s struct {
 	fid string
 	sid string
 }
+
 
 func NewFlow(function string) (Flow, error) {
 	resp, err := http.Post(flowService + "/graph?functionId=" + function, "", nil)
@@ -49,11 +55,30 @@ func NewFlow(function string) (Flow, error) {
 	return f{flowId}, nil
 }
 
-func (flowId f) AddTerminationHook(fnName string) error {
-	url := "/graph/" + flowId.fid + "/terminationHook"
+func ThisFlow(id string) Flow {
+	return f{id}
+}
 
-	_, err := postRequest(url, fnName, nil)
-	return err
+func (flow f) Id() string {
+	return flow.fid
+}
+
+func postBlob(path string, arg string, contentType string) (http.Header, error) {
+	newMap := map[string]string{
+		"Content-Type": contentType,
+		"FnProject-DatumType": "blob",
+		"FnProject-ResultStatus": "success",
+	}
+	return postRequest(path, arg, newMap)
+}
+
+func postHttpReq(path string, contentType string, payload string) (http.Header, error) {
+	newMap := map[string]string{
+		"Content-Type": contentType,
+		"FnProject-DatumType": "httpreq",
+		"FnProject-Method": "POST",
+	}
+	return postRequest(path, payload, newMap)
 }
 
 func postRequest(path string, arg string, headers map[string]string) (http.Header, error) {
@@ -62,8 +87,6 @@ func postRequest(path string, arg string, headers map[string]string) (http.Heade
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/mock-blob")
-	req.Header.Set("FnProject-DatumType", "blob")
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -73,6 +96,15 @@ func postRequest(path string, arg string, headers map[string]string) (http.Heade
 
 	return resp.Header, err
 }
+
+
+func (flowId f) AddTerminationHook(fnName string) error {
+	url := "/graph/" + flowId.fid + "/terminationHook"
+
+	_, err := postBlob(url, fnName, "application/golang")
+	return err
+}
+
 
 func (flowId f) Commit() error {
 	resp, err := http.Post(flowService + "/graph/" + flowId.fid + "/commit", "", nil)
@@ -84,7 +116,7 @@ func (flowId f) Commit() error {
 func (flowId f) CompletedValue(value string) (Stage, error) {
 	url := "/graph/" + flowId.fid + "/completedValue"
 
-	h, err := postRequest(url, value, map[string]string{"FnProject-ResultStatus": "success"})
+	h, err := postBlob(url, value, "text/plain")
 	if err != nil {
 		return s{}, nil
 	}
@@ -92,8 +124,45 @@ func (flowId f) CompletedValue(value string) (Stage, error) {
 	return s{fid: flowId.fid, sid: h.Get("FnProject-StageId")}, nil
 }
 
-func (stage s) ThenCompose(fnName string) (Stage, error) {
-	url := "/graph/" + stage.fid + "/stage/" + stage.sid + "/thenCompose"
+func (flowId f) InvokeFunction(fnName string, contentType string, body string) (Stage, error) {
+	url := "/graph/" + flowId.fid + "/invokeFunction?functionId=" + fnName
+
+	h, err := postHttpReq(url, contentType, body)
+	if err != nil {
+		return s{}, nil
+	}
+
+	return s{fid: flowId.fid, sid: h.Get("FnProject-StageId")}, nil
+}
+
+func (flowId f) AllOf(stages ...Stage) (Stage, error) {
+	var cids []string
+	for _, stage := range stages {
+		cids = append(cids, stage.Id())
+	}
+	url := "/graph/" + flowId.fid + "/allOf?cids=" + strings.Join(cids, ",")
+
+	h, err := postHttpReq(url, "", "")
+	if err != nil {
+		return s{}, nil
+	}
+
+	return s{fid: flowId.fid, sid: h.Get("FnProject-StageId")}, nil
+}
+
+
+func ThisStage(fid string, sid string) Stage {
+	return s{fid: fid, sid: sid}
+}
+
+func (stage s) Id() string {
+	return stage.sid
+}
+
+
+
+func (stage s) thenOperate(fnName string, op string) (Stage, error) {
+	url := "/graph/" + stage.fid + "/stage/" + stage.sid + "/" + op
 
 	h, err := postRequest(url, fnName, nil)
 	if err != nil {
@@ -101,4 +170,13 @@ func (stage s) ThenCompose(fnName string) (Stage, error) {
 	}
 
 	return s{fid: stage.fid, sid: h.Get("FnProject-StageId")}, nil
+}
+
+
+func (stage s) ThenCompose(fnName string) (Stage, error) {
+	return stage.thenOperate(fnName, "thenCompose")
+}
+
+func (stage s) ThenApply(fnName string) (Stage, error) {
+	return stage.thenOperate(fnName, "thenApply")
 }

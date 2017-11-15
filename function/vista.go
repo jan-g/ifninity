@@ -4,121 +4,16 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/jan-g/ifninity/flow"
-	"os"
 	"mime"
 	"strings"
 	"mime/multipart"
 	"io/ioutil"
 	"fmt"
 	"io"
+	"net/http"
+	"strconv"
 )
 
-/*
-package com.fnproject.fn.examples;
-
-import com.fnproject.fn.api.flow.Flow;
-import com.fnproject.fn.api.flow.FlowFuture;
-import com.fnproject.fn.api.flow.Flows;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.impl.client.DefaultHttpClient;
-
-import java.io.IOException;
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
-
-public class LoadTest {
-
-    public static class RunSpec implements Serializable {
-        public int numImages;
-        public int numBytesInData;
-        public String slowFunction;
-        public String fastFunction;
-        public boolean notifyFinished;
-        public String notifyURL;
-    }
-
-    public String handleRequest(RunSpec input) {
-        Flow fl = Flows.currentFlow();
-        if (input.notifyFinished) {
-            fl.addTerminationHook((state) -> {
-                HttpPost httppost = new HttpPost(input.notifyURL);
-                httppost.setEntity(null);
-
-                HttpClient httpclient = new DefaultHttpClient();
-                try {
-                    httpclient.execute(httppost);
-                } catch (IOException e) {
-                    // We can't do much at this stage really...
-                    e.printStackTrace();
-                }
-            });
-        }
-
-        // Start by pretending we scrape numImages images
-        ArrayList<String> fakeScrapes = new ArrayList<>();
-        for (int i = 0; i < input.numImages; i++) {
-            fakeScrapes.add("Image_" + i);
-        }
-        FlowFuture<ArrayList<String>> future = fl.completedValue(fakeScrapes);
-
-        // Fan out to the processing nodes and replicate Vista's function calls
-        future.thenCompose(resp -> {
-            try {
-                List<FlowFuture<?>> pendingTasks = resp
-                        .stream()
-                        .map(scrapeResult -> {
-                            try {
-                                return Flows.currentFlow()
-                                        .invokeFunction(input.slowFunction, new byte[input.numBytesInData], byte[].class)
-                                        .thenCompose((plateResp) -> {
-                                            try {
-                                                return Flows.currentFlow()
-                                                        .invokeFunction(input.slowFunction, new byte[input.numBytesInData], byte[].class)
-                                                        .thenCompose((drawResp) -> {
-                                                            try {
-                                                                return Flows.currentFlow().allOf(
-                                                                        Flows.currentFlow().invokeFunction(input.fastFunction, new byte[input.numBytesInData], byte[].class),
-                                                                        Flows.currentFlow().invokeFunction(input.fastFunction, new byte[input.numBytesInData], byte[].class)
-                                                                );
-                                                            } catch (Exception e) {
-                                                                e.printStackTrace();
-                                                                throw e;
-                                                            }
-                                                        });
-                                            } catch (Exception e) {
-                                                e.printStackTrace();
-                                                throw e;
-                                            }
-                                        });
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                                throw e;
-                            }
-                        }).collect(Collectors.toList());
-
-                return Flows.currentFlow()
-                        .allOf(pendingTasks.toArray(new FlowFuture[pendingTasks.size()]));
-            } catch (Exception e) {
-                e.printStackTrace();
-                throw e;
-            }
-
-        }).whenComplete((v, throwable) -> {
-            if (throwable != null) {
-                System.err.println("Failed!");
-            } else {
-                System.err.println("Succeeded.");
-            }
-        });
-
-        return "Run started.\n";
-    }
-
-}
- */
 
 func Vista(c *gin.Context) {
 	// Are we a main invocation?
@@ -126,8 +21,13 @@ func Vista(c *gin.Context) {
 	if flowId == "" {
 		handleRequest(c)
 	} else {
+		fl := flow.ThisFlow(flowId)
 		// Extract the other salient pieces
 		stageId := c.GetHeader("fnproject-stageid")
+		var st flow.Stage
+		if stageId != "" {
+			st = flow.ThisStage(flowId, stageId)
+		}
 
 		// Extract the bits from the multipart
 		mediaType, params, err := mime.ParseMediaType(c.Request.Header.Get("Content-Type"))
@@ -153,16 +53,15 @@ func Vista(c *gin.Context) {
 			}
 		}
 
-		if stageId != "" {
-			stage[strings.Split(items[0], "|")[0]](c, flowId, stageId, items)
-		}
+		fmt.Printf("%s %s %s\n", fl.Id(), st.Id(), items[0])
+		stage[strings.Split(items[0], "|")[0]](c, fl, st, items)
 	}
 }
 
 
 type RunSpec struct {
 	NumImages int
-	NumBytesInData int64
+	NumBytesInData int
 	SlowFunction string
 	FastFunction string
 	NotifyFinished bool
@@ -170,18 +69,22 @@ type RunSpec struct {
 }
 
 func handleRequest(c *gin.Context) {
-	// TODO: generate stages
 	var rs RunSpec
 	err := c.BindJSON(&rs)
 	if err != nil {
-		panic(err)
+		c.JSON(400, map[string]string{"error": "please specify load setup"})
+		return
 	}
 
-	flow, err := flow.NewFlow("t/flow-load-test-vista")
+	fl, err := flow.NewFlow("t/flow-load-test-vista")
 	if err != nil {
 		panic(err)
 	}
-	flow.AddTerminationHook("terminate|" + rs.NotifyURL)
+	notifyURL := ""
+	if rs.NotifyFinished {
+		notifyURL = rs.NotifyURL
+	}
+	fl.AddTerminationHook("terminate|" + notifyURL)
 	fmt.Printf("Input RunSpec = %+v\n", rs)
 
 	var fakeScrapes []string
@@ -189,99 +92,189 @@ func handleRequest(c *gin.Context) {
 		fakeScrapes = append(fakeScrapes, fmt.Sprintf("Image_%d", i))
 	}
 
-	stage, err := flow.CompletedValue(strings.Join(fakeScrapes, "|"))
+	st, err := fl.CompletedValue(strings.Join(fakeScrapes, "|"))
 	if err != nil {
 		panic(err)
 	}
 
-	stage, err = stage.ThenCompose("start-flows")
+	st, err = st.ThenCompose("start-flows|" + rs.FastFunction + "|" + rs.SlowFunction + "|" + strconv.Itoa(rs.NumBytesInData))
 	if err != nil {
 		panic(err)
 	}
 
-	flow.Commit()
+	fl.Commit()
 }
 
 // Stages
 
-var stage = map[string]func(*gin.Context, string, string, []string){
+var stage = map[string]func(*gin.Context, flow.Flow, flow.Stage, []string){
 	"terminate": terminationHook,
 	"start-flows": startFlows,
+	"httpresp-to-string": httpRespToString,
+	"second-slow": secondSlow,
+	"fast-handoff": fastHandoff,
 }
 
-func terminationHook(c *gin.Context, flowId string, stageId string, items []string) {
-	// TODO: callback with termination notification
+func terminationHook(c *gin.Context, fl flow.Flow, st flow.Stage, items []string) {
+	notifyURL := strings.Split(items[0], "|")[1]
+	if notifyURL != "" {
+		resp, err := http.Post(notifyURL, "", nil)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+	}
+
+	fmt.Printf("Terminating flow %v with stage %v items = %v\n", fl, st, items)
+	returnEmpty(c)
+}
+
+
+func startFlows(c *gin.Context, fl flow.Flow, st flow.Stage, items []string) {
 	/*
-	HttpPost httppost = new HttpPost(input.notifyURL);
-	httppost.setEntity(null);
+        (resp -> {
+            try {
+                List<FlowFuture<?>> pendingTasks = resp
+                        .stream()
+                        .map(scrapeResult -> {
+                            try {
+                                return Flows.currentFlow()
+                                        .invokeFunction(input.slowFunction, new byte[input.numBytesInData], byte[].class)
+										[ thenApply ]
+                                        .thenCompose((plateResp) -> {   // second-slow
 
-	HttpClient httpclient = new DefaultHttpClient();
-	try {
-		httpclient.execute(httppost);
-	} catch (IOException e) {
-	// We can't do much at this stage really...
-	e.printStackTrace();
-	}
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                                throw e;
+                            }
+                        }).collect(Collectors.toList());
+
+                return Flows.currentFlow()
+                        .allOf(pendingTasks.toArray(new FlowFuture[pendingTasks.size()]));
+            } catch (Exception e) {
+                e.printStackTrace();
+                throw e;
+            }
+
+        }).whenComplete((v, throwable) -> {
+            if (throwable != null) {
+                System.err.println("Failed!");
+            } else {
+                System.err.println("Succeeded.");
+            }
+        });
 	*/
-	fmt.Printf("Terminating flow %s with stage %s items = %v\n", flowId, stageId, items)
-	returnDatum(c, "empty", true, "", nil, nil)
-}
-
-var notifyURL string
-
-func init() {
-	notifyURL = os.Getenv("NOTIFY_URL")
-	if notifyURL == "" {
-		panic("NOTIFY_URL must be set")
-	}
-}
-
-
-func returnDatum(c *gin.Context, datumType string, success bool, contentType string, body []byte, headers map[string]string) {
-	c.Writer.WriteHeaderNow()
-	s := "success"
-	if !success {
-		s = "failure"
-	}
-	ct := ""
-	if contentType != "" {
-		ct = "Content-Type: " + contentType + "\r\n"
-	}
-	hs := ""
-	for k, v := range headers {
-		hs += k + ": " + v + "\r\n"
-	}
-	c.Writer.Write([]byte(
-		"HTTP/1.1 200\r\n" +
-		"FnProject-DatumType: " + datumType + "\r\n" +
-		"FnProject-ResultStatus: " + s + "\r\n" +
-		ct +
-		hs +
-		"\r\n"))
-	c.Writer.Write(body)
-}
-
-
-func startFlows(c *gin.Context, flowId string, stageId string, items []string) {
-	// TODO: callback with termination notification
-	/*
-	HttpPost httppost = new HttpPost(input.notifyURL);
-	httppost.setEntity(null);
-
-	HttpClient httpclient = new DefaultHttpClient();
-	try {
-		httpclient.execute(httppost);
-	} catch (IOException e) {
-	// We can't do much at this stage really...
-	e.printStackTrace();
-	}
-	*/
+	closure := strings.Split(items[0], "|")
+	fastFunction := closure[1]
+	slowFunction := closure[2]
+	numBytesInData, _ := strconv.Atoi(closure[3])
 	stages := strings.Split(items[1], "|")
+	var futures []flow.Stage
+
+	for _ = range stages {
+		stage, err := fl.InvokeFunction(slowFunction, "application/octet-stream", string(make([]byte, numBytesInData)))
+		if err != nil {
+			panic(err)
+		}
+		stage, err = stage.ThenApply("httpresp-to-string")
+		if err != nil {
+			panic(err)
+		}
+		stage, err = stage.ThenCompose("second-slow|" + fastFunction + "|" + slowFunction)
+		if err != nil {
+			panic(err)
+		}
+		futures = append(futures, stage)
+	}
+
+	stage, err := fl.AllOf(futures...)
+	if err != nil {
+		panic(err)
+	}
 	fmt.Printf("Starting parallel flows with stages %+v\n", stages)
-	returnDatum(c,
-		"stageref",
-		true,
-		"",
-		nil,
-		 map[string]string{"FnProject-StageId": "foo"})
+	returnStage(c, stage)
+}
+
+func httpRespToString(c *gin.Context, fl flow.Flow, st flow.Stage, items []string) {
+	returnBlob(c, items[1])
+}
+
+func secondSlow(c *gin.Context, fl flow.Flow, st flow.Stage, items []string) {
+	/*
+		.thenCompose((plateResp) -> {   // second-slow
+			try {
+				return Flows.currentFlow()
+				.invokeFunction(input.slowFunction, new byte[input.numBytesInData], byte[].class)
+				[ thenApply ]
+				.thenCompose((drawResp) -> {   // fastHandoff
+				try {
+				return Flows.currentFlow().allOf(
+				Flows.currentFlow().invokeFunction(input.fastFunction, new byte[input.numBytesInData], byte[].class),
+				Flows.currentFlow().invokeFunction(input.fastFunction, new byte[input.numBytesInData], byte[].class)
+			);
+			} catch (Exception e) {
+				e.printStackTrace();
+				throw e;
+			}
+			});
+			} catch (Exception e) {
+			e.printStackTrace();
+			throw e;
+			}
+		});
+	*/
+	closure := strings.Split(items[0], "|")
+	fastFunction := closure[1]
+	slowFunction := closure[2]
+	input := items[1]
+
+	stage, err := fl.InvokeFunction(slowFunction, "application/octet-stream", input)
+	if err != nil {
+		panic(err)
+	}
+	stage, err = stage.ThenApply("httpresp-to-string")
+	if err != nil {
+		panic(err)
+	}
+	stage, err = stage.ThenCompose("fast-handoff|" + fastFunction)
+	if err != nil {
+		panic(err)
+	}
+	returnStage(c, stage)
+}
+
+func fastHandoff(c *gin.Context, fl flow.Flow, st flow.Stage, items []string) {
+	/*
+				.thenCompose((drawResp) -> {   // fastHandoff
+				try {
+				return Flows.currentFlow().allOf(
+				Flows.currentFlow().invokeFunction(input.fastFunction, new byte[input.numBytesInData], byte[].class),
+				Flows.currentFlow().invokeFunction(input.fastFunction, new byte[input.numBytesInData], byte[].class)
+			);
+	*/
+	closure := strings.Split(items[0], "|")
+	fastFunction := closure[1]
+	input := items[1]
+
+	stage1, err := fl.InvokeFunction(fastFunction, "application/octet-stream", input)
+	if err != nil {
+		panic(err)
+	}
+	stage1, err = stage1.ThenApply("httpresp-to-string")
+	if err != nil {
+		panic(err)
+	}
+	stage2, err := fl.InvokeFunction(fastFunction, "application/octet-stream", input)
+	if err != nil {
+		panic(err)
+	}
+	stage2, err = stage2.ThenApply("httpresp-to-string")
+	if err != nil {
+		panic(err)
+	}
+	stage, err := fl.AllOf(stage1, stage2)
+	if err != nil {
+		panic(err)
+	}
+	returnStage(c, stage)
 }
