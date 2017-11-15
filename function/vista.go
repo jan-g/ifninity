@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"bytes"
 )
 
 
@@ -118,11 +119,16 @@ var stage = map[string]func(*gin.Context, flow.Flow, flow.Stage, []string){
 func terminationHook(c *gin.Context, fl flow.Flow, st flow.Stage, items []string) {
 	notifyURL := strings.Split(items[0], "|")[1]
 	if notifyURL != "" {
-		resp, err := http.Post(notifyURL, "", nil)
+		resp, err := http.Post(notifyURL, "text/plain", bytes.NewReader([]byte{}))
 		if err != nil {
 			panic(err)
 		}
 		defer resp.Body.Close()
+		b, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("Termination callback result: %+v %v\n", resp, b)
 	}
 
 	fmt.Printf("Terminating flow %v with stage %v items = %v\n", fl, st, items)

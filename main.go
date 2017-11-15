@@ -6,6 +6,7 @@ import f "github.com/jan-g/ifninity/function"
 
 func main() {
 	r := gin.Default()
+	r.GET("/", ping)
 	r.GET("/ping", ping)
 	r.POST("/ping", ping)
 	r.GET("/r/t/fast-function", f.Fast)

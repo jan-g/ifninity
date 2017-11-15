@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"errors"
 	"strings"
+	"fmt"
 )
 
 var flowService string
@@ -92,6 +93,10 @@ func postRequest(path string, arg string, headers map[string]string) (http.Heade
 	}
 
 	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Errorf("Error in response to postRequest %s %v\n", path, err)
+		return nil, err
+	}
 	defer resp.Body.Close()
 
 	return resp.Header, err
