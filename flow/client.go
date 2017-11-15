@@ -19,10 +19,21 @@ func init() {
 type Flow interface {
 	AddTerminationHook(fnName string) error
 	Commit() error
+
+	CompletedValue(value string) (Stage, error)
+}
+
+type Stage interface {
+	ThenCompose(fnName string) (Stage, error)
 }
 
 type f struct {
 	fid string
+}
+
+type s struct {
+	fid string
+	sid string
 }
 
 func NewFlow(function string) (Flow, error) {
@@ -39,20 +50,28 @@ func NewFlow(function string) (Flow, error) {
 }
 
 func (flowId f) AddTerminationHook(fnName string) error {
-	url := flowService + "/graph/" + flowId.fid + "/terminationHook"
+	url := "/graph/" + flowId.fid + "/terminationHook"
 
+	_, err := postRequest(url, fnName, nil)
+	return err
+}
+
+func postRequest(path string, arg string, headers map[string]string) (http.Header, error) {
 	client := &http.Client{}
-	req, err := http.NewRequest("POST", url, strings.NewReader(fnName))
+	req, err := http.NewRequest("POST", flowService + path, strings.NewReader(arg))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/mock-blob")
 	req.Header.Set("FnProject-DatumType", "blob")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := client.Do(req)
 	defer resp.Body.Close()
 
-	return nil
+	return resp.Header, err
 }
 
 func (flowId f) Commit() error {
@@ -60,4 +79,26 @@ func (flowId f) Commit() error {
 	defer resp.Body.Close()
 
 	return err
+}
+
+func (flowId f) CompletedValue(value string) (Stage, error) {
+	url := "/graph/" + flowId.fid + "/completedValue"
+
+	h, err := postRequest(url, value, map[string]string{"FnProject-ResultStatus": "success"})
+	if err != nil {
+		return s{}, nil
+	}
+
+	return s{fid: flowId.fid, sid: h.Get("FnProject-StageId")}, nil
+}
+
+func (stage s) ThenCompose(fnName string) (Stage, error) {
+	url := "/graph/" + stage.fid + "/stage/" + stage.sid + "/thenCompose"
+
+	h, err := postRequest(url, fnName, nil)
+	if err != nil {
+		return s{}, nil
+	}
+
+	return s{fid: stage.fid, sid: h.Get("FnProject-StageId")}, nil
 }

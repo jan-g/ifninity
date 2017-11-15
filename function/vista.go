@@ -161,7 +161,7 @@ func Vista(c *gin.Context) {
 
 
 type RunSpec struct {
-	NumImages int64
+	NumImages int
 	NumBytesInData int64
 	SlowFunction string
 	FastFunction string
@@ -183,6 +183,22 @@ func handleRequest(c *gin.Context) {
 	}
 	flow.AddTerminationHook("terminate|" + rs.NotifyURL)
 	fmt.Printf("Input RunSpec = %+v\n", rs)
+
+	var fakeScrapes []string
+	for i := 0; i < rs.NumImages; i++ {
+		fakeScrapes = append(fakeScrapes, fmt.Sprintf("Image_%d", i))
+	}
+
+	stage, err := flow.CompletedValue(strings.Join(fakeScrapes, "|"))
+	if err != nil {
+		panic(err)
+	}
+
+	stage, err = stage.ThenCompose("start-flows")
+	if err != nil {
+		panic(err)
+	}
+
 	flow.Commit()
 }
 
@@ -190,6 +206,7 @@ func handleRequest(c *gin.Context) {
 
 var stage = map[string]func(*gin.Context, string, string, []string){
 	"terminate": terminationHook,
+	"start-flows": startFlows,
 }
 
 func terminationHook(c *gin.Context, flowId string, stageId string, items []string) {
@@ -207,7 +224,7 @@ func terminationHook(c *gin.Context, flowId string, stageId string, items []stri
 	}
 	*/
 	fmt.Printf("Terminating flow %s with stage %s items = %v\n", flowId, stageId, items)
-	returnDatum(c, "empty", true, "", nil)
+	returnDatum(c, "empty", true, "", nil, nil)
 }
 
 var notifyURL string
@@ -220,7 +237,7 @@ func init() {
 }
 
 
-func returnDatum(c *gin.Context, datumType string, success bool, contentType string, body []byte) {
+func returnDatum(c *gin.Context, datumType string, success bool, contentType string, body []byte, headers map[string]string) {
 	c.Writer.WriteHeaderNow()
 	s := "success"
 	if !success {
@@ -230,11 +247,41 @@ func returnDatum(c *gin.Context, datumType string, success bool, contentType str
 	if contentType != "" {
 		ct = "Content-Type: " + contentType + "\r\n"
 	}
+	hs := ""
+	for k, v := range headers {
+		hs += k + ": " + v + "\r\n"
+	}
 	c.Writer.Write([]byte(
 		"HTTP/1.1 200\r\n" +
 		"FnProject-DatumType: " + datumType + "\r\n" +
 		"FnProject-ResultStatus: " + s + "\r\n" +
 		ct +
+		hs +
 		"\r\n"))
 	c.Writer.Write(body)
+}
+
+
+func startFlows(c *gin.Context, flowId string, stageId string, items []string) {
+	// TODO: callback with termination notification
+	/*
+	HttpPost httppost = new HttpPost(input.notifyURL);
+	httppost.setEntity(null);
+
+	HttpClient httpclient = new DefaultHttpClient();
+	try {
+		httpclient.execute(httppost);
+	} catch (IOException e) {
+	// We can't do much at this stage really...
+	e.printStackTrace();
+	}
+	*/
+	stages := strings.Split(items[1], "|")
+	fmt.Printf("Starting parallel flows with stages %+v\n", stages)
+	returnDatum(c,
+		"stageref",
+		true,
+		"",
+		nil,
+		 map[string]string{"FnProject-StageId": "foo"})
 }
