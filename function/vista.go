@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"bytes"
+	"errors"
 )
 
 
@@ -58,6 +59,16 @@ func Vista(c *gin.Context) {
 		function := strings.Split(items[0], "|")[0]
 		c.Set("stageId", stageId)
 		c.Set("handlerFunc", function)
+		defer func() {
+			if err := recover(); err != nil {
+				switch err.(type) {
+				case error:
+					returnError(c, err.(error))
+				case string:
+					returnError(c, errors.New(err.(string)))
+				}
+			}
+		}()
 		stage[function](c, fl, st, items)
 	}
 }

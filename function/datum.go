@@ -42,3 +42,7 @@ func returnStage(c *gin.Context, stage flow.Stage) {
 func returnBlob(c *gin.Context, payload string) {
 	returnDatum(c, "blob", true, "text/plain", []byte(payload), nil)
 }
+
+func returnError(c *gin.Context, payload error) {
+	returnDatum(c, "blob", false, "text/plain", []byte(payload.Error()), nil)
+}
