@@ -5,7 +5,8 @@ import "github.com/gin-gonic/gin"
 import f "github.com/jan-g/ifninity/function"
 
 func main() {
-	r := gin.Default()
+	r := gin.New()
+	r.Use(f.Logger())
 	r.GET("/", ping)
 	r.GET("/ping", ping)
 	r.POST("/ping", ping)

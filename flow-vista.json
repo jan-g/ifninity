@@ -1,0 +1,8 @@
+{
+    "numImages" : 20,
+    "numBytesInData" : 200,
+    "slowFunction" : "./slow-function",
+    "fastFunction" : "./fast-function",
+    "notifyFinished" : false,
+    "notifyURL" : ""
+}

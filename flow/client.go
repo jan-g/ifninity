@@ -171,7 +171,7 @@ func (stage s) thenOperate(fnName string, op string) (Stage, error) {
 
 	h, err := postRequest(url, fnName, nil)
 	if err != nil {
-		return s{}, nil
+		return s{}, err
 	}
 
 	return s{fid: stage.fid, sid: h.Get("FnProject-StageId")}, nil

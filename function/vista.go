@@ -16,6 +16,7 @@ import (
 )
 
 
+
 func Vista(c *gin.Context) {
 	// Are we a main invocation?
 	flowId := c.GetHeader("fnproject-flowid")
@@ -54,8 +55,10 @@ func Vista(c *gin.Context) {
 			}
 		}
 
-		fmt.Printf("%s %s %s\n", fl.Id(), st.Id(), items[0])
-		stage[strings.Split(items[0], "|")[0]](c, fl, st, items)
+		function := strings.Split(items[0], "|")[0]
+		c.Set("stageId", stageId)
+		c.Set("handlerFunc", function)
+		stage[function](c, fl, st, items)
 	}
 }
 
