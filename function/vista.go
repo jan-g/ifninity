@@ -140,14 +140,12 @@ func terminationHook(c *gin.Context, fl flow.Flow, st flow.Stage, items []string
 			panic(err)
 		}
 		defer resp.Body.Close()
-		b, err := ioutil.ReadAll(resp.Body)
+		_, err = ioutil.ReadAll(resp.Body)
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("Termination callback result: %+v %v\n", resp, b)
 	}
 
-	fmt.Printf("Terminating flow %v with stage %v items = %v\n", fl, st, items)
 	returnEmpty(c)
 }
 
