@@ -57,6 +57,7 @@ func Vista(c *gin.Context) {
 		}
 
 		function := strings.Split(items[0], "|")[0]
+		c.Set("flowId", flowId)
 		c.Set("stageId", stageId)
 		c.Set("handlerFunc", function)
 		defer func() {
@@ -95,6 +96,7 @@ func handleRequest(c *gin.Context) {
 	if err != nil {
 		panic(err)
 	}
+	c.Set("flowId", fl.Id())
 	notifyURL := ""
 	if rs.NotifyFinished {
 		notifyURL = rs.NotifyURL

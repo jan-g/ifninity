@@ -89,6 +89,10 @@ func LoggerWithWriter(out io.Writer, notlogged ...string) gin.HandlerFunc {
 				path = path + "?" + raw
 			}
 
+			flowId, ok := c.Get("flowId")
+			if !ok {
+				flowId = ""
+			}
 			stageId, ok := c.Get("stageId")
 			if !ok {
 				stageId = ""
@@ -98,13 +102,14 @@ func LoggerWithWriter(out io.Writer, notlogged ...string) gin.HandlerFunc {
 				handlerFunc = ""
 			}
 
-			fmt.Fprintf(out, "[GIN] %v |%s %3d %s| %13v | %15s |%s %-7s %s %s %s %s\n%s",
+			fmt.Fprintf(out, "[GIN] %v |%s %3d %s| %13v | %15s |%s %-7s %s %s %s %s %s\n%s",
 				end.Format("2006/01/02 - 15:04:05"),
 				statusColor, statusCode, resetColor,
 				latency,
 				clientIP,
 				methodColor, method, resetColor,
 				path,
+				flowId,
 				stageId,
 				handlerFunc,
 				comment,
