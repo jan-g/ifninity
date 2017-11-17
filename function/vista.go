@@ -102,7 +102,7 @@ func handleRequest(c *gin.Context) {
 	if rs.NotifyFinished {
 		notifyURL = rs.NotifyURL
 	}
-	fl.AddTerminationHook("terminate|" + notifyURL)
+	fl.AddTerminationHook("terminate|" + notifyURL + "|" + time.Now().Format(time.RFC3339Nano))
 	fmt.Printf("Input RunSpec = %+v\n", rs)
 
 	var fakeScrapes []string
@@ -134,7 +134,13 @@ var stage = map[string]func(*gin.Context, flow.Flow, flow.Stage, []string){
 }
 
 func terminationHook(c *gin.Context, fl flow.Flow, st flow.Stage, items []string) {
-	notifyURL := strings.Split(items[0], "|")[1]
+	closure := strings.Split(items[0], "|")
+	notifyURL := closure[1]
+	start, err := time.Parse(time.RFC3339Nano, closure[2])
+	if err == nil {
+		end := time.Now()
+		c.Set("spanTime", end.Sub(start))
+	}
 	if notifyURL != "" {
 		err := notifyLoadRunner(notifyURL)
 		if err != nil {
