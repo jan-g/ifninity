@@ -64,7 +64,7 @@ func (flow f) Id() string {
 	return flow.fid
 }
 
-func postBlob(path string, arg string, contentType string) (http.Header, error) {
+func postBlob(path string, arg string, contentType string) (string, error) {
 	newMap := map[string]string{
 		"Content-Type": contentType,
 		"FnProject-DatumType": "blob",
@@ -73,7 +73,7 @@ func postBlob(path string, arg string, contentType string) (http.Header, error) 
 	return postRequest(path, arg, newMap)
 }
 
-func postHttpReq(path string, contentType string, payload string) (http.Header, error) {
+func postHttpReq(path string, contentType string, payload string) (string, error) {
 	newMap := map[string]string{
 		"Content-Type": contentType,
 		"FnProject-DatumType": "httpreq",
@@ -82,11 +82,11 @@ func postHttpReq(path string, contentType string, payload string) (http.Header, 
 	return postRequest(path, payload, newMap)
 }
 
-func postRequest(path string, arg string, headers map[string]string) (http.Header, error) {
+func postRequest(path string, arg string, headers map[string]string) (string, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest("POST", flowService + path, strings.NewReader(arg))
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -94,12 +94,15 @@ func postRequest(path string, arg string, headers map[string]string) (http.Heade
 
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Errorf("Error in response to postRequest %s %v\n", path, err)
-		return nil, err
+		return "", err
 	}
 	defer resp.Body.Close()
 
-	return resp.Header, err
+	stageId := resp.Header.Get("FnProject-StageId")
+	if stageId != "" {
+		return stageId, nil
+	}
+	return "", fmt.Errorf("FnProject-StageId heading missing in postRequest response")
 }
 
 
@@ -121,23 +124,23 @@ func (flowId f) Commit() error {
 func (flowId f) CompletedValue(value string) (Stage, error) {
 	url := "/graph/" + flowId.fid + "/completedValue"
 
-	h, err := postBlob(url, value, "text/plain")
+	sid, err := postBlob(url, value, "text/plain")
 	if err != nil {
 		return s{}, nil
 	}
 
-	return s{fid: flowId.fid, sid: h.Get("FnProject-StageId")}, nil
+	return s{fid: flowId.fid, sid: sid}, nil
 }
 
 func (flowId f) InvokeFunction(fnName string, contentType string, body string) (Stage, error) {
 	url := "/graph/" + flowId.fid + "/invokeFunction?functionId=" + fnName
 
-	h, err := postHttpReq(url, contentType, body)
+	sid, err := postHttpReq(url, contentType, body)
 	if err != nil {
 		return s{}, nil
 	}
 
-	return s{fid: flowId.fid, sid: h.Get("FnProject-StageId")}, nil
+	return s{fid: flowId.fid, sid: sid}, nil
 }
 
 func (flowId f) AllOf(stages ...Stage) (Stage, error) {
@@ -147,12 +150,12 @@ func (flowId f) AllOf(stages ...Stage) (Stage, error) {
 	}
 	url := "/graph/" + flowId.fid + "/allOf?cids=" + strings.Join(cids, ",")
 
-	h, err := postHttpReq(url, "", "")
+	sid, err := postHttpReq(url, "", "")
 	if err != nil {
 		return s{}, nil
 	}
 
-	return s{fid: flowId.fid, sid: h.Get("FnProject-StageId")}, nil
+	return s{fid: flowId.fid, sid: sid}, nil
 }
 
 
@@ -169,12 +172,12 @@ func (stage s) Id() string {
 func (stage s) thenOperate(fnName string, op string) (Stage, error) {
 	url := "/graph/" + stage.fid + "/stage/" + stage.sid + "/" + op
 
-	h, err := postRequest(url, fnName, nil)
+	sid, err := postRequest(url, fnName, nil)
 	if err != nil {
 		return s{}, err
 	}
 
-	return s{fid: stage.fid, sid: h.Get("FnProject-StageId")}, nil
+	return s{fid: stage.fid, sid: sid}, nil
 }
 
 

@@ -65,9 +65,9 @@ func Vista(c *gin.Context) {
 			if err := recover(); err != nil {
 				switch err.(type) {
 				case error:
-					returnError(c, err.(error))
+					returnError(c, c.Error(err.(error)))
 				case string:
-					returnError(c, errors.New(err.(string)))
+					returnError(c, c.Error(errors.New(err.(string))))
 				}
 			}
 		}()
