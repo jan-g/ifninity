@@ -12,8 +12,9 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"bytes"
 	"errors"
+	"time"
+	"math/rand"
 )
 
 
@@ -135,18 +136,38 @@ var stage = map[string]func(*gin.Context, flow.Flow, flow.Stage, []string){
 func terminationHook(c *gin.Context, fl flow.Flow, st flow.Stage, items []string) {
 	notifyURL := strings.Split(items[0], "|")[1]
 	if notifyURL != "" {
-		resp, err := http.Post(notifyURL, "text/plain", bytes.NewReader([]byte{}))
+		err := notifyLoadRunner(notifyURL)
 		if err != nil {
-			panic(err)
-		}
-		defer resp.Body.Close()
-		_, err = ioutil.ReadAll(resp.Body)
-		if err != nil {
+			c.Error(err)
 			panic(err)
 		}
 	}
 
 	returnEmpty(c)
+}
+
+
+func notifyLoadRunner(url string) error {
+	wait := time.Millisecond
+	max := 5
+	var err error
+	for i := 0; i < max; i++ {
+		if i != 0 {
+			time.Sleep(jitter(wait, 0.2))
+			wait *= 10
+		}
+		var resp *http.Response
+		resp, err = http.Post(url, "text/plain", strings.NewReader(""))
+		if err == nil {
+			resp.Body.Close()
+			return nil
+		}
+	}
+	return err
+}
+
+func jitter(t time.Duration, wobble float64) time.Duration {
+	return time.Duration(float64(t) * (1 + wobble * (rand.Float64() * 2 - 1)))
 }
 
 
