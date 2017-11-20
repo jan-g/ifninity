@@ -116,6 +116,9 @@ func (flowId f) AddTerminationHook(fnName string) error {
 
 func (flowId f) Commit() error {
 	resp, err := http.Post(flowService + "/graph/" + flowId.fid + "/commit", "", nil)
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
 
 	return err
